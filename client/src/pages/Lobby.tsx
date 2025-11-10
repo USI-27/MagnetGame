@@ -13,6 +13,7 @@ interface LobbyProps {
 export default function Lobby({ onJoin, isConnecting }: LobbyProps) {
   const [username, setUsername] = useState("");
   const [roomCode, setRoomCode] = useState("");
+  const [magnetCount, setMagnetCount] = useState(8);
   const [activeTab, setActiveTab] = useState<"quick" | "join" | "create">("quick");
 
   const handleQuickJoin = (e: React.FormEvent) => {
@@ -103,6 +104,22 @@ export default function Lobby({ onJoin, isConnecting }: LobbyProps) {
                     />
                     <p className="text-xs text-muted-foreground">
                       {username.length}/20 characters
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Magnets per player: {magnetCount}</label>
+                    <Input
+                      type="range"
+                      min="3"
+                      max="15"
+                      value={magnetCount}
+                      onChange={(e) => setMagnetCount(parseInt(e.target.value))}
+                      disabled={isConnecting}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Choose between 3-15 magnets (default: 8)
                     </p>
                   </div>
                   
@@ -243,11 +260,11 @@ export default function Lobby({ onJoin, isConnecting }: LobbyProps) {
                 </li>
                 <li className="flex items-start">
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-1.5 mr-2 flex-shrink-0"></span>
-                  <span>Press <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono">Spacebar</kbd> to toggle polarity (N/S)</span>
+                  <span>All magnets attract each other (like real magnets)</span>
                 </li>
                 <li className="flex items-start">
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mt-1.5 mr-2 flex-shrink-0"></span>
-                  <span>Magnets attract or repel based on polarity</span>
+                  <span>Watch magnets settle after placement - movement takes time!</span>
                 </li>
               </ul>
             </div>

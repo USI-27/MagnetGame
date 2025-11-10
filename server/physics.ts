@@ -1,4 +1,4 @@
-import { Player, GAME_CONFIG } from "@shared/schema";
+import { Magnet, GAME_CONFIG } from "@shared/schema";
 
 export class PhysicsEngine {
   private worldBounds: { width: number; height: number };
@@ -7,70 +7,84 @@ export class PhysicsEngine {
     this.worldBounds = worldBounds;
   }
 
-  update(players: Map<string, Player>, deltaTime: number): void {
-    const playerArray = Array.from(players.values());
+  update(magnets: Magnet[], deltaTime: number): string[] {
+    const movedMagnetIds: string[] = [];
+    const placedMagnets = magnets.filter(m => m.isPlaced);
 
-    // Calculate magnetic forces between all players
-    for (let i = 0; i < playerArray.length; i++) {
-      const p1 = playerArray[i];
+    // Calculate magnetic forces between all placed magnets
+    for (let i = 0; i < placedMagnets.length; i++) {
+      const m1 = placedMagnets[i];
       
-      for (let j = i + 1; j < playerArray.length; j++) {
-        const p2 = playerArray[j];
-        this.applyMagneticForce(p1, p2);
+      for (let j = i + 1; j < placedMagnets.length; j++) {
+        const m2 = placedMagnets[j];
+        this.applyMagneticForce(m1, m2);
       }
     }
 
     // Update positions and apply damping
-    playerArray.forEach((player) => {
-      // Apply movement input
-      if (player.isMoving && (player.targetVx !== 0 || player.targetVy !== 0)) {
-        const acceleration = 0.5;
-        player.vx += player.targetVx * acceleration;
-        player.vy += player.targetVy * acceleration;
-      }
-
+    placedMagnets.forEach((magnet) => {
       // Apply damping (friction)
-      player.vx *= GAME_CONFIG.DAMPING;
-      player.vy *= GAME_CONFIG.DAMPING;
+      magnet.vx *= GAME_CONFIG.DAMPING;
+      magnet.vy *= GAME_CONFIG.DAMPING;
 
       // Limit maximum velocity
-      const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+      const speed = Math.sqrt(magnet.vx * magnet.vx + magnet.vy * magnet.vy);
       if (speed > GAME_CONFIG.MAX_VELOCITY) {
         const scale = GAME_CONFIG.MAX_VELOCITY / speed;
-        player.vx *= scale;
-        player.vy *= scale;
+        magnet.vx *= scale;
+        magnet.vy *= scale;
       }
+
+      // Store old position to check for movement
+      const oldX = magnet.x;
+      const oldY = magnet.y;
 
       // Update position
-      player.x += player.vx;
-      player.y += player.vy;
+      magnet.x += magnet.vx;
+      magnet.y += magnet.vy;
 
       // Boundary collision with bounce
-      if (player.x - GAME_CONFIG.MAGNET_RADIUS < 0) {
-        player.x = GAME_CONFIG.MAGNET_RADIUS;
-        player.vx = Math.abs(player.vx) * 0.5;
-      } else if (player.x + GAME_CONFIG.MAGNET_RADIUS > this.worldBounds.width) {
-        player.x = this.worldBounds.width - GAME_CONFIG.MAGNET_RADIUS;
-        player.vx = -Math.abs(player.vx) * 0.5;
+      if (magnet.x - GAME_CONFIG.MAGNET_RADIUS < 0) {
+        magnet.x = GAME_CONFIG.MAGNET_RADIUS;
+        magnet.vx = Math.abs(magnet.vx) * 0.5;
+      } else if (magnet.x + GAME_CONFIG.MAGNET_RADIUS > this.worldBounds.width) {
+        magnet.x = this.worldBounds.width - GAME_CONFIG.MAGNET_RADIUS;
+        magnet.vx = -Math.abs(magnet.vx) * 0.5;
       }
 
-      if (player.y - GAME_CONFIG.MAGNET_RADIUS < 0) {
-        player.y = GAME_CONFIG.MAGNET_RADIUS;
-        player.vy = Math.abs(player.vy) * 0.5;
-      } else if (player.y + GAME_CONFIG.MAGNET_RADIUS > this.worldBounds.height) {
-        player.y = this.worldBounds.height - GAME_CONFIG.MAGNET_RADIUS;
-        player.vy = -Math.abs(player.vy) * 0.5;
+      if (magnet.y - GAME_CONFIG.MAGNET_RADIUS < 0) {
+        magnet.y = GAME_CONFIG.MAGNET_RADIUS;
+        magnet.vy = Math.abs(magnet.vy) * 0.5;
+      } else if (magnet.y + GAME_CONFIG.MAGNET_RADIUS > this.worldBounds.height) {
+        magnet.y = this.worldBounds.height - GAME_CONFIG.MAGNET_RADIUS;
+        magnet.vy = -Math.abs(magnet.vy) * 0.5;
+      }
+
+      // Check if magnet moved significantly from initial position
+      if (magnet.initialX !== undefined && magnet.initialY !== undefined) {
+        const distanceFromInitial = Math.sqrt(
+          Math.pow(magnet.x - magnet.initialX, 2) + 
+          Math.pow(magnet.y - magnet.initialY, 2)
+        );
+        
+        if (distanceFromInitial > GAME_CONFIG.MOVEMENT_THRESHOLD) {
+          if (!movedMagnetIds.includes(magnet.id)) {
+            movedMagnetIds.push(magnet.id);
+          }
+        }
       }
 
       // Stop very slow movement
-      if (Math.abs(player.vx) < 0.01) player.vx = 0;
-      if (Math.abs(player.vy) < 0.01) player.vy = 0;
+      if (Math.abs(magnet.vx) < 0.01) magnet.vx = 0;
+      if (Math.abs(magnet.vy) < 0.01) magnet.vy = 0;
     });
+
+    return movedMagnetIds;
   }
 
-  private applyMagneticForce(p1: Player, p2: Player): void {
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
+  private applyMagneticForce(m1: Magnet, m2: Magnet): void {
+    const dx = m2.x - m1.x;
+    const dy = m2.y - m1.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     // Only apply force within range
@@ -78,31 +92,47 @@ export class PhysicsEngine {
       return;
     }
 
-    // Magnetic force: F = k * (p1 * p2) / r^2
-    // Positive force = repulsion (same polarity)
-    // Negative force = attraction (opposite polarity)
-    const forceMagnitude = (p1.polarity * p2.polarity * GAME_CONFIG.MAGNETIC_STRENGTH) / (distance * distance);
+    // Magnetic force: F = k / r^2 (always attractive, like real magnets)
+    // Negative force = attraction (magnets pull toward each other)
+    const forceMagnitude = -GAME_CONFIG.MAGNETIC_STRENGTH / (distance * distance);
     
     // Normalize direction
     const dirX = dx / distance;
     const dirY = dy / distance;
 
-    // Apply force to both players (Newton's third law)
+    // Apply force to both magnets (Newton's third law)
     const forceX = dirX * forceMagnitude;
     const forceY = dirY * forceMagnitude;
 
-    // Positive force pushes away, negative force pulls together
-    p1.vx -= forceX;
-    p1.vy -= forceY;
-    p2.vx += forceX;
-    p2.vy += forceY;
+    // Negative force pulls magnets together
+    m1.vx -= forceX;
+    m1.vy -= forceY;
+    m2.vx += forceX;
+    m2.vy += forceY;
   }
 
-  getRandomSpawnPosition(): { x: number; y: number } {
-    const margin = GAME_CONFIG.MAGNET_RADIUS * 2;
-    return {
-      x: margin + Math.random() * (this.worldBounds.width - margin * 2),
-      y: margin + Math.random() * (this.worldBounds.height - margin * 2),
-    };
+  isValidPlacement(x: number, y: number, magnets: Magnet[]): boolean {
+    // Check if position is within bounds
+    if (x - GAME_CONFIG.MAGNET_RADIUS < 0 || 
+        x + GAME_CONFIG.MAGNET_RADIUS > this.worldBounds.width ||
+        y - GAME_CONFIG.MAGNET_RADIUS < 0 || 
+        y + GAME_CONFIG.MAGNET_RADIUS > this.worldBounds.height) {
+      return false;
+    }
+
+    // Check if position overlaps with existing magnets
+    for (const magnet of magnets) {
+      if (magnet.isPlaced) {
+        const dx = x - magnet.x;
+        const dy = y - magnet.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < GAME_CONFIG.MAGNET_RADIUS * 2) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GameCanvas } from "@/components/GameCanvas";
 import { HUD } from "@/components/HUD";
 import { GameState, WSMessage, GAME_CONFIG } from "@shared/schema";
@@ -13,6 +13,8 @@ interface GameProps {
 export default function Game({ username, roomCode, onDisconnect }: GameProps) {
   const [gameState, setGameState] = useState<GameState>({
     players: {},
+    magnets: [],
+    gamePhase: "waiting",
     worldBounds: { width: GAME_CONFIG.WORLD_WIDTH, height: GAME_CONFIG.WORLD_HEIGHT },
   });
   const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
@@ -20,11 +22,12 @@ export default function Game({ username, roomCode, onDisconnect }: GameProps) {
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   
   const wsRef = useRef<WebSocket | null>(null);
-  const keysPressed = useRef<Set<string>>(new Set());
+  const intentionalDisconnectRef = useRef(false);
   const { toast } = useToast();
 
   // WebSocket connection
   useEffect(() => {
+    intentionalDisconnectRef.current = false;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws`;
     console.log("[Game] Attempting WebSocket connection to:", wsUrl);
@@ -65,6 +68,7 @@ export default function Game({ username, roomCode, onDisconnect }: GameProps) {
 
         switch (message.type) {
           case "welcome":
+            console.log("[Game] Welcome! PlayerId:", message.playerId, "Room:", message.roomCode);
             setCurrentPlayerId(message.playerId);
             setCurrentRoomCode(message.roomCode);
             setGameState(message.state);
@@ -75,6 +79,7 @@ export default function Game({ username, roomCode, onDisconnect }: GameProps) {
             break;
 
           case "game_state":
+            console.log("[Game] State update - Phase:", message.state.gamePhase, "Players:", Object.keys(message.state.players).length);
             setGameState(message.state);
             break;
 
@@ -117,6 +122,30 @@ export default function Game({ username, roomCode, onDisconnect }: GameProps) {
             });
             setTimeout(onDisconnect, 2000);
             break;
+
+          case "game_started":
+            toast({
+              title: "🎮 Game Started!",
+              description: "Place your magnets strategically",
+              className: "bg-green-900 border-green-600 text-white",
+            });
+            break;
+
+          case "magnets_moved":
+            toast({
+              title: "⚡ Magnetic Interference!",
+              description: `${message.movedMagnets.length} magnet(s) moved and must be replaced`,
+              className: "bg-amber-900 border-amber-600 text-white",
+            });
+            break;
+
+          case "game_over":
+            toast({
+              title: "🏆 Game Over!",
+              description: `${message.winner.username} wins!`,
+              className: "bg-purple-900 border-purple-600 text-white",
+            });
+            break;
         }
       } catch (error) {
         console.error("Error parsing WebSocket message:", error);
@@ -137,102 +166,73 @@ export default function Game({ username, roomCode, onDisconnect }: GameProps) {
     socket.onclose = (event) => {
       console.log("[Game] WebSocket disconnected. Code:", event.code, "Reason:", event.reason);
       setConnectionStatus("disconnected");
-      toast({
-        title: "Disconnected",
-        description: "Connection to server lost",
-      });
-      setTimeout(onDisconnect, 2000);
+      
+      // Only show toast and redirect if this wasn't an intentional disconnect
+      if (!intentionalDisconnectRef.current) {
+        toast({
+          title: "Disconnected",
+          description: "Connection to server lost",
+        });
+        setTimeout(onDisconnect, 2000);
+      }
     };
 
     wsRef.current = socket;
 
     return () => {
+      intentionalDisconnectRef.current = true;
       socket.close();
     };
   }, [username, roomCode, onDisconnect, toast]);
 
-  // Input handling
-  const sendInput = useCallback(() => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-    let x = 0;
-    let y = 0;
-
-    if (keysPressed.current.has("ArrowUp") || keysPressed.current.has("w")) y -= 1;
-    if (keysPressed.current.has("ArrowDown") || keysPressed.current.has("s")) y += 1;
-    if (keysPressed.current.has("ArrowLeft") || keysPressed.current.has("a")) x -= 1;
-    if (keysPressed.current.has("ArrowRight") || keysPressed.current.has("d")) x += 1;
-
-    // Normalize diagonal movement
-    if (x !== 0 && y !== 0) {
-      const length = Math.sqrt(x * x + y * y);
-      x /= length;
-      y /= length;
+  const handleReady = () => {
+    console.log("[Game] Ready button clicked");
+    console.log("[Game] WebSocket state:", wsRef.current?.readyState);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const message: WSMessage = { type: "player_ready" };
+      console.log("[Game] Sending player_ready message");
+      wsRef.current.send(JSON.stringify(message));
+    } else {
+      console.error("[Game] WebSocket not open, cannot send ready message");
     }
+  };
 
-    const inputMessage: WSMessage = {
-      type: "input",
-      direction: { x, y },
-    };
-    wsRef.current.send(JSON.stringify(inputMessage));
-  }, []);
+  const handlePlaceMagnet = (x: number, y: number) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const message: WSMessage = { type: "place_magnet", x, y };
+      wsRef.current.send(JSON.stringify(message));
+    }
+  };
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const key = e.key;
-      
-      // Toggle polarity with spacebar
-      if (key === " ") {
-        e.preventDefault();
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          const message: WSMessage = { type: "toggle_polarity" };
-          wsRef.current.send(JSON.stringify(message));
-        }
-        return;
-      }
-
-      // Movement keys
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "w", "a", "s", "d"].includes(key)) {
-        e.preventDefault();
-        keysPressed.current.add(key);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      const key = e.key;
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "w", "a", "s", "d"].includes(key)) {
-        e.preventDefault();
-        keysPressed.current.delete(key);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-
-    // Send input updates at 60fps
-    const inputInterval = setInterval(sendInput, 1000 / 60);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      clearInterval(inputInterval);
-    };
-  }, [sendInput]);
+  const handleSetMagnetCount = (count: number) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      const message: WSMessage = { type: "set_magnet_count", magnetCount: count };
+      wsRef.current.send(JSON.stringify(message));
+    }
+  };
 
   return (
-    <div className="w-full h-screen bg-background overflow-hidden" data-testid="game-container">
+    <div 
+      className="w-full h-screen overflow-hidden" 
+      style={{ backgroundColor: '#0f172a' }}
+      data-testid="game-container"
+    >
       <div className="relative w-full h-full flex items-center justify-center p-8">
-        <GameCanvas
-          players={gameState.players}
-          currentPlayerId={currentPlayerId}
-          worldBounds={gameState.worldBounds}
-        />
+        <div className="relative">
+          <GameCanvas
+            gameState={gameState}
+            currentPlayerId={currentPlayerId}
+            onPlaceMagnet={handlePlaceMagnet}
+          />
+        </div>
         
         <HUD
-          players={gameState.players}
+          gameState={gameState}
           currentPlayerId={currentPlayerId}
           connectionStatus={connectionStatus}
           roomCode={currentRoomCode}
+          onReady={handleReady}
+          onSetMagnetCount={handleSetMagnetCount}
         />
       </div>
     </div>

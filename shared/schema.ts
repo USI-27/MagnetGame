@@ -4,14 +4,18 @@ import { z } from "zod";
 export const GAME_CONFIG = {
   WORLD_WIDTH: 1200,
   WORLD_HEIGHT: 800,
-  MAGNET_RADIUS: 25,
+  MAGNET_RADIUS: 12,
   MAX_VELOCITY: 8,
   DAMPING: 0.95,
-  MAGNETIC_STRENGTH: 5000,
-  MIN_FORCE_DISTANCE: 50,
-  MAX_FORCE_DISTANCE: 400,
+  MAGNETIC_STRENGTH: 3000,
+  MIN_FORCE_DISTANCE: 26,
+  MAX_FORCE_DISTANCE: 280, // Increased from 200 to 280 (40% larger magnetic field)
   TICK_RATE: 60,
-  MAX_PLAYERS_PER_ROOM: 8,
+  MAX_PLAYERS_PER_ROOM: 2,
+  MAGNETS_PER_PLAYER: 8,
+  MIN_MAGNETS_PER_PLAYER: 3,
+  MAX_MAGNETS_PER_PLAYER: 15,
+  MOVEMENT_THRESHOLD: 3, // If a magnet moves more than this distance, it needs to be picked up
 } as const;
 
 // Room Schema
@@ -25,19 +29,30 @@ export const roomSchema = z.object({
 
 export type Room = z.infer<typeof roomSchema>;
 
+// Magnet Schema
+export const magnetSchema = z.object({
+  id: z.string(),
+  playerId: z.string(),
+  x: z.number(),
+  y: z.number(),
+  vx: z.number().default(0),
+  vy: z.number().default(0),
+  isPlaced: z.boolean().default(false),
+  initialX: z.number().optional(),
+  initialY: z.number().optional(),
+  isSettling: z.boolean().default(false),
+});
+
+export type Magnet = z.infer<typeof magnetSchema>;
+
 // Player Schema
 export const playerSchema = z.object({
   id: z.string(),
   username: z.string().min(1).max(20),
-  x: z.number(),
-  y: z.number(),
-  vx: z.number(),
-  vy: z.number(),
-  polarity: z.union([z.literal(1), z.literal(-1)]),
   color: z.string(),
-  isMoving: z.boolean().default(false),
-  targetVx: z.number().default(0),
-  targetVy: z.number().default(0),
+  magnetsRemaining: z.number().default(GAME_CONFIG.MAGNETS_PER_PLAYER),
+  magnets: z.array(magnetSchema).default([]),
+  isReady: z.boolean().default(false),
 });
 
 export type Player = z.infer<typeof playerSchema>;
@@ -45,6 +60,11 @@ export type Player = z.infer<typeof playerSchema>;
 // Game State Schema
 export const gameStateSchema = z.object({
   players: z.record(z.string(), playerSchema),
+  magnets: z.array(magnetSchema).default([]),
+  currentTurn: z.string().optional(), // playerId whose turn it is
+  gamePhase: z.enum(["waiting", "playing", "finished"]).default("waiting"),
+  winner: z.string().optional(),
+  magnetCount: z.number().default(GAME_CONFIG.MAGNETS_PER_PLAYER),
   worldBounds: z.object({
     width: z.number(),
     height: z.number(),
@@ -68,19 +88,22 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
     state: gameStateSchema,
   }),
   z.object({
-    type: z.literal("input"),
-    direction: z.object({
-      x: z.number(),
-      y: z.number(),
-    }),
+    type: z.literal("place_magnet"),
+    x: z.number(),
+    y: z.number(),
   }),
   z.object({
-    type: z.literal("toggle_polarity"),
+    type: z.literal("player_ready"),
   }),
   z.object({
     type: z.literal("join"),
     username: z.string().min(1).max(20),
     roomCode: z.string().optional(),
+    magnetCount: z.number().optional(),
+  }),
+  z.object({
+    type: z.literal("set_magnet_count"),
+    magnetCount: z.number(),
   }),
   z.object({
     type: z.literal("welcome"),
@@ -93,6 +116,17 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("room_not_found"),
+  }),
+  z.object({
+    type: z.literal("magnets_moved"),
+    movedMagnets: z.array(z.string()), // Array of magnet IDs that moved
+  }),
+  z.object({
+    type: z.literal("game_started"),
+  }),
+  z.object({
+    type: z.literal("game_over"),
+    winner: playerSchema,
   }),
 ]);
 
