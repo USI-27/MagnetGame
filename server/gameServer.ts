@@ -195,7 +195,7 @@ export class GameServer {
   }
 
   private getPlayerIdBySocket(ws: WebSocket): string | null {
-    for (const [playerId, client] of this.clients.entries()) {
+    for (const [playerId, client] of Array.from(this.clients.entries())) {
       if (client === ws) {
         return playerId;
       }
