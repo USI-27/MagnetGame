@@ -11,10 +11,12 @@ type AppState = "lobby" | "game";
 function App() {
   const [appState, setAppState] = useState<AppState>("lobby");
   const [username, setUsername] = useState<string>("");
+  const [roomCode, setRoomCode] = useState<string | undefined>(undefined);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  const handleJoin = (name: string) => {
+  const handleJoin = (name: string, code?: string) => {
     setUsername(name);
+    setRoomCode(code);
     setIsConnecting(true);
     setAppState("game");
   };
@@ -22,6 +24,7 @@ function App() {
   const handleDisconnect = () => {
     setAppState("lobby");
     setUsername("");
+    setRoomCode(undefined);
     setIsConnecting(false);
   };
 
@@ -32,7 +35,7 @@ function App() {
           <Lobby onJoin={handleJoin} isConnecting={isConnecting} />
         )}
         {appState === "game" && username && (
-          <Game username={username} onDisconnect={handleDisconnect} />
+          <Game username={username} roomCode={roomCode} onDisconnect={handleDisconnect} />
         )}
         <Toaster />
       </TooltipProvider>

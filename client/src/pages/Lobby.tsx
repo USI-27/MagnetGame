@@ -2,20 +2,43 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Users, Key, Dices } from "lucide-react";
 
 interface LobbyProps {
-  onJoin: (username: string) => void;
+  onJoin: (username: string, roomCode?: string) => void;
   isConnecting: boolean;
 }
 
 export default function Lobby({ onJoin, isConnecting }: LobbyProps) {
   const [username, setUsername] = useState("");
+  const [roomCode, setRoomCode] = useState("");
+  const [activeTab, setActiveTab] = useState<"quick" | "join" | "create">("quick");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleQuickJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (username.trim().length > 0 && username.trim().length <= 20) {
       onJoin(username.trim());
+    }
+  };
+
+  const handleJoinRoom = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (username.trim().length > 0 && username.trim().length <= 20 && roomCode.trim().length === 6) {
+      onJoin(username.trim(), roomCode.trim().toUpperCase());
+    }
+  };
+
+  const handleCreateRoom = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (username.trim().length > 0 && username.trim().length <= 20) {
+      // Generate a random room code on client side
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      let code = "";
+      for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      onJoin(username.trim(), code);
     }
   };
 
@@ -41,47 +64,175 @@ export default function Lobby({ onJoin, isConnecting }: LobbyProps) {
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl">Join the Game</CardTitle>
             <CardDescription>
-              Enter your name to start playing with others
+              Choose how you want to play
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Input
-                  data-testid="input-username"
-                  type="text"
-                  placeholder="Your name"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  maxLength={20}
-                  disabled={isConnecting}
-                  className="h-12 text-base"
-                  autoFocus
-                />
-                <p className="text-xs text-muted-foreground">
-                  {username.length}/20 characters
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="quick" data-testid="tab-quick-join">
+                  <Users className="w-4 h-4 mr-2" />
+                  Quick
+                </TabsTrigger>
+                <TabsTrigger value="join" data-testid="tab-join-room">
+                  <Key className="w-4 h-4 mr-2" />
+                  Join
+                </TabsTrigger>
+                <TabsTrigger value="create" data-testid="tab-create-room">
+                  <Dices className="w-4 h-4 mr-2" />
+                  Create
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="quick" className="space-y-4 mt-4">
+                <p className="text-sm text-muted-foreground">
+                  Join any available room instantly
                 </p>
-              </div>
-              
-              <Button
-                data-testid="button-join"
-                type="submit"
-                className="w-full h-12 text-base font-medium"
-                disabled={username.trim().length === 0 || username.trim().length > 20 || isConnecting}
-              >
-                {isConnecting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin mr-2"></div>
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <Users className="w-5 h-5 mr-2" />
-                    Join Game
-                  </>
-                )}
-              </Button>
-            </form>
+                <form onSubmit={handleQuickJoin} className="space-y-4">
+                  <div className="space-y-2">
+                    <Input
+                      data-testid="input-username-quick"
+                      type="text"
+                      placeholder="Your name"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      maxLength={20}
+                      disabled={isConnecting}
+                      className="h-12 text-base"
+                      autoFocus
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {username.length}/20 characters
+                    </p>
+                  </div>
+                  
+                  <Button
+                    data-testid="button-quick-join"
+                    type="submit"
+                    className="w-full h-12 text-base font-medium"
+                    disabled={username.trim().length === 0 || username.trim().length > 20 || isConnecting}
+                  >
+                    {isConnecting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin mr-2"></div>
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Users className="w-5 h-5 mr-2" />
+                        Quick Join
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </TabsContent>
+
+              <TabsContent value="join" className="space-y-4 mt-4">
+                <p className="text-sm text-muted-foreground">
+                  Enter a room code to join your friends
+                </p>
+                <form onSubmit={handleJoinRoom} className="space-y-4">
+                  <div className="space-y-2">
+                    <Input
+                      data-testid="input-username-join"
+                      type="text"
+                      placeholder="Your name"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      maxLength={20}
+                      disabled={isConnecting}
+                      className="h-12 text-base"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {username.length}/20 characters
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Input
+                      data-testid="input-room-code"
+                      type="text"
+                      placeholder="Room code (6 characters)"
+                      value={roomCode}
+                      onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                      maxLength={6}
+                      disabled={isConnecting}
+                      className="h-12 text-base font-mono tracking-wider"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {roomCode.length}/6 characters
+                    </p>
+                  </div>
+                  
+                  <Button
+                    data-testid="button-join-room"
+                    type="submit"
+                    className="w-full h-12 text-base font-medium"
+                    disabled={
+                      username.trim().length === 0 || 
+                      username.trim().length > 20 || 
+                      roomCode.trim().length !== 6 || 
+                      isConnecting
+                    }
+                  >
+                    {isConnecting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin mr-2"></div>
+                        Joining...
+                      </>
+                    ) : (
+                      <>
+                        <Key className="w-5 h-5 mr-2" />
+                        Join Room
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </TabsContent>
+
+              <TabsContent value="create" className="space-y-4 mt-4">
+                <p className="text-sm text-muted-foreground">
+                  Create a private room and share the code
+                </p>
+                <form onSubmit={handleCreateRoom} className="space-y-4">
+                  <div className="space-y-2">
+                    <Input
+                      data-testid="input-username-create"
+                      type="text"
+                      placeholder="Your name"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      maxLength={20}
+                      disabled={isConnecting}
+                      className="h-12 text-base"
+                      autoFocus={activeTab === "create"}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {username.length}/20 characters
+                    </p>
+                  </div>
+                  
+                  <Button
+                    data-testid="button-create-room"
+                    type="submit"
+                    className="w-full h-12 text-base font-medium"
+                    disabled={username.trim().length === 0 || username.trim().length > 20 || isConnecting}
+                  >
+                    {isConnecting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin mr-2"></div>
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <Dices className="w-5 h-5 mr-2" />
+                        Create Room
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </TabsContent>
+            </Tabs>
 
             <div className="mt-6 pt-6 border-t space-y-3">
               <p className="text-sm font-medium text-foreground">How to Play:</p>

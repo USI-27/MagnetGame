@@ -3,27 +3,87 @@ import { Player, WSMessage, GameState, GAME_CONFIG, PLAYER_COLORS } from "@share
 import { PhysicsEngine } from "./physics";
 import { randomUUID } from "crypto";
 
+interface GameRoom {
+  code: string;
+  players: Map<string, Player>;
+  clients: Map<string, WebSocket>;
+  physics: PhysicsEngine;
+  gameLoop: NodeJS.Timeout | null;
+  colorIndex: number;
+  createdAt: number;
+}
+
 export class GameServer {
   private wss: WebSocketServer;
-  private players: Map<string, Player>;
-  private clients: Map<string, WebSocket>;
-  private physics: PhysicsEngine;
-  private gameLoop: NodeJS.Timeout | null;
-  private colorIndex: number;
+  private rooms: Map<string, GameRoom>;
+  private playerRooms: Map<string, string>; // playerId -> roomCode
 
   constructor(wss: WebSocketServer) {
     this.wss = wss;
-    this.players = new Map();
-    this.clients = new Map();
-    this.physics = new PhysicsEngine({
-      width: GAME_CONFIG.WORLD_WIDTH,
-      height: GAME_CONFIG.WORLD_HEIGHT,
-    });
-    this.gameLoop = null;
-    this.colorIndex = 0;
+    this.rooms = new Map();
+    this.playerRooms = new Map();
 
-    this.startGameLoop();
     this.setupWebSocket();
+  }
+
+  private generateRoomCode(): string {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let code = "";
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
+  private createRoom(roomCode?: string): string {
+    const code = roomCode || this.generateRoomCode();
+    
+    // Ensure unique code
+    while (this.rooms.has(code)) {
+      return this.createRoom();
+    }
+
+    const room: GameRoom = {
+      code,
+      players: new Map(),
+      clients: new Map(),
+      physics: new PhysicsEngine({
+        width: GAME_CONFIG.WORLD_WIDTH,
+        height: GAME_CONFIG.WORLD_HEIGHT,
+      }),
+      gameLoop: null,
+      colorIndex: 0,
+      createdAt: Date.now(),
+    };
+
+    this.rooms.set(code, room);
+    this.startRoomGameLoop(code);
+    console.log(`Created room: ${code}`);
+    
+    return code;
+  }
+
+  private getOrCreateRoom(roomCode?: string): string {
+    if (roomCode && this.rooms.has(roomCode)) {
+      const room = this.rooms.get(roomCode)!;
+      if (room.players.size < GAME_CONFIG.MAX_PLAYERS_PER_ROOM) {
+        return roomCode;
+      }
+      return "";
+    }
+
+    // If no room code or room doesn't exist, find or create default room
+    if (!roomCode) {
+      // Find a room with available space
+      for (const [code, room] of Array.from(this.rooms.entries())) {
+        if (room.players.size < GAME_CONFIG.MAX_PLAYERS_PER_ROOM) {
+          return code;
+        }
+      }
+    }
+
+    // Create new room
+    return this.createRoom(roomCode);
   }
 
   private setupWebSocket(): void {
@@ -53,7 +113,7 @@ export class GameServer {
   private handleMessage(ws: WebSocket, message: WSMessage): void {
     switch (message.type) {
       case "join":
-        this.handleJoin(ws, message.username);
+        this.handleJoin(ws, message.username, message.roomCode);
         break;
 
       case "input":
@@ -66,11 +126,26 @@ export class GameServer {
     }
   }
 
-  private handleJoin(ws: WebSocket, username: string): void {
+  private handleJoin(ws: WebSocket, username: string, requestedRoomCode?: string): void {
+    const roomCode = this.getOrCreateRoom(requestedRoomCode);
+    
+    if (!roomCode) {
+      const fullMessage: WSMessage = { type: "room_full" };
+      ws.send(JSON.stringify(fullMessage));
+      return;
+    }
+
+    const room = this.rooms.get(roomCode);
+    if (!room) {
+      const notFoundMessage: WSMessage = { type: "room_not_found" };
+      ws.send(JSON.stringify(notFoundMessage));
+      return;
+    }
+
     const playerId = randomUUID();
-    const spawnPos = this.physics.getRandomSpawnPosition();
-    const color = PLAYER_COLORS[this.colorIndex % PLAYER_COLORS.length];
-    this.colorIndex++;
+    const spawnPos = room.physics.getRandomSpawnPosition();
+    const color = PLAYER_COLORS[room.colorIndex % PLAYER_COLORS.length];
+    room.colorIndex++;
 
     const player: Player = {
       id: playerId,
@@ -86,32 +161,40 @@ export class GameServer {
       targetVy: 0,
     };
 
-    this.players.set(playerId, player);
-    this.clients.set(playerId, ws);
+    room.players.set(playerId, player);
+    room.clients.set(playerId, ws);
+    this.playerRooms.set(playerId, roomCode);
 
     // Send welcome message to new player
     const welcomeMessage: WSMessage = {
       type: "welcome",
       playerId,
-      state: this.getGameState(),
+      roomCode,
+      state: this.getRoomGameState(roomCode),
     };
     ws.send(JSON.stringify(welcomeMessage));
 
-    // Broadcast new player to all other clients
+    // Broadcast new player to all other clients in room
     const joinMessage: WSMessage = {
       type: "player_joined",
       player,
     };
-    this.broadcast(joinMessage, playerId);
+    this.broadcastToRoom(roomCode, joinMessage, playerId);
 
-    console.log(`Player ${username} (${playerId}) joined the game`);
+    console.log(`Player ${username} (${playerId}) joined room ${roomCode}`);
   }
 
   private handleInput(ws: WebSocket, direction: { x: number; y: number }): void {
     const playerId = this.getPlayerIdBySocket(ws);
     if (!playerId) return;
 
-    const player = this.players.get(playerId);
+    const roomCode = this.playerRooms.get(playerId);
+    if (!roomCode) return;
+
+    const room = this.rooms.get(roomCode);
+    if (!room) return;
+
+    const player = room.players.get(playerId);
     if (!player) return;
 
     // Update player movement target
@@ -124,7 +207,13 @@ export class GameServer {
     const playerId = this.getPlayerIdBySocket(ws);
     if (!playerId) return;
 
-    const player = this.players.get(playerId);
+    const roomCode = this.playerRooms.get(playerId);
+    if (!roomCode) return;
+
+    const room = this.rooms.get(roomCode);
+    if (!room) return;
+
+    const player = room.players.get(playerId);
     if (!player) return;
 
     player.polarity = player.polarity === 1 ? -1 : 1;
@@ -135,43 +224,78 @@ export class GameServer {
     const playerId = this.getPlayerIdBySocket(ws);
     if (!playerId) return;
 
-    const player = this.players.get(playerId);
+    const roomCode = this.playerRooms.get(playerId);
+    if (!roomCode) return;
+
+    const room = this.rooms.get(roomCode);
+    if (!room) return;
+
+    const player = room.players.get(playerId);
     if (player) {
-      console.log(`Player ${player.username} (${playerId}) left the game`);
+      console.log(`Player ${player.username} (${playerId}) left room ${roomCode}`);
     }
 
-    this.players.delete(playerId);
-    this.clients.delete(playerId);
+    room.players.delete(playerId);
+    room.clients.delete(playerId);
+    this.playerRooms.delete(playerId);
 
     // Broadcast player left
     const leftMessage: WSMessage = {
       type: "player_left",
       playerId,
     };
-    this.broadcast(leftMessage);
+    this.broadcastToRoom(roomCode, leftMessage);
+
+    // Clean up empty rooms after a delay
+    if (room.players.size === 0) {
+      setTimeout(() => {
+        const currentRoom = this.rooms.get(roomCode);
+        if (currentRoom && currentRoom.players.size === 0) {
+          if (currentRoom.gameLoop) {
+            clearInterval(currentRoom.gameLoop);
+          }
+          this.rooms.delete(roomCode);
+          console.log(`Deleted empty room: ${roomCode}`);
+        }
+      }, 30000); // 30 second grace period
+    }
   }
 
-  private startGameLoop(): void {
+  private startRoomGameLoop(roomCode: string): void {
+    const room = this.rooms.get(roomCode);
+    if (!room) return;
+
     const tickRate = 1000 / GAME_CONFIG.TICK_RATE;
     
-    this.gameLoop = setInterval(() => {
+    room.gameLoop = setInterval(() => {
       // Update physics
-      this.physics.update(this.players, tickRate / 1000);
+      room.physics.update(room.players, tickRate / 1000);
 
-      // Broadcast game state to all clients
+      // Broadcast game state to all clients in room
       const stateMessage: WSMessage = {
         type: "game_state",
-        state: this.getGameState(),
+        state: this.getRoomGameState(roomCode),
       };
-      this.broadcast(stateMessage);
+      this.broadcastToRoom(roomCode, stateMessage);
     }, tickRate);
 
-    console.log(`Game loop started at ${GAME_CONFIG.TICK_RATE} ticks/sec`);
+    console.log(`Game loop started for room ${roomCode}`);
   }
 
-  private getGameState(): GameState {
+  private getRoomGameState(roomCode: string): GameState {
+    const room = this.rooms.get(roomCode);
+    if (!room) {
+      return {
+        players: {},
+        worldBounds: {
+          width: GAME_CONFIG.WORLD_WIDTH,
+          height: GAME_CONFIG.WORLD_HEIGHT,
+        },
+      };
+    }
+
     const playersObject: Record<string, Player> = {};
-    this.players.forEach((player, id) => {
+    room.players.forEach((player, id) => {
       playersObject[id] = player;
     });
 
@@ -184,10 +308,13 @@ export class GameServer {
     };
   }
 
-  private broadcast(message: WSMessage, excludePlayerId?: string): void {
+  private broadcastToRoom(roomCode: string, message: WSMessage, excludePlayerId?: string): void {
+    const room = this.rooms.get(roomCode);
+    if (!room) return;
+
     const messageStr = JSON.stringify(message);
 
-    this.clients.forEach((client, playerId) => {
+    room.clients.forEach((client, playerId) => {
       if (playerId !== excludePlayerId && client.readyState === WebSocket.OPEN) {
         client.send(messageStr);
       }
@@ -195,19 +322,23 @@ export class GameServer {
   }
 
   private getPlayerIdBySocket(ws: WebSocket): string | null {
-    for (const [playerId, client] of Array.from(this.clients.entries())) {
-      if (client === ws) {
-        return playerId;
+    for (const [roomCode, room] of Array.from(this.rooms.entries())) {
+      for (const [playerId, client] of Array.from(room.clients.entries())) {
+        if (client === ws) {
+          return playerId;
+        }
       }
     }
     return null;
   }
 
   stop(): void {
-    if (this.gameLoop) {
-      clearInterval(this.gameLoop);
-      this.gameLoop = null;
-    }
+    this.rooms.forEach((room) => {
+      if (room.gameLoop) {
+        clearInterval(room.gameLoop);
+      }
+    });
+    this.rooms.clear();
     this.wss.close();
     console.log("Game server stopped");
   }

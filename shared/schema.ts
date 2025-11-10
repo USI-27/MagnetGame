@@ -11,7 +11,19 @@ export const GAME_CONFIG = {
   MIN_FORCE_DISTANCE: 50,
   MAX_FORCE_DISTANCE: 400,
   TICK_RATE: 60,
+  MAX_PLAYERS_PER_ROOM: 8,
 } as const;
+
+// Room Schema
+export const roomSchema = z.object({
+  code: z.string().length(6),
+  name: z.string().min(1).max(50),
+  playerCount: z.number(),
+  maxPlayers: z.number(),
+  createdAt: z.number(),
+});
+
+export type Room = z.infer<typeof roomSchema>;
 
 // Player Schema
 export const playerSchema = z.object({
@@ -68,11 +80,19 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("join"),
     username: z.string().min(1).max(20),
+    roomCode: z.string().optional(),
   }),
   z.object({
     type: z.literal("welcome"),
     playerId: z.string(),
+    roomCode: z.string(),
     state: gameStateSchema,
+  }),
+  z.object({
+    type: z.literal("room_full"),
+  }),
+  z.object({
+    type: z.literal("room_not_found"),
   }),
 ]);
 

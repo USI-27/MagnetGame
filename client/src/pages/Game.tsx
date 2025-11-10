@@ -6,15 +6,17 @@ import { useToast } from "@/hooks/use-toast";
 
 interface GameProps {
   username: string;
+  roomCode?: string;
   onDisconnect: () => void;
 }
 
-export default function Game({ username, onDisconnect }: GameProps) {
+export default function Game({ username, roomCode, onDisconnect }: GameProps) {
   const [gameState, setGameState] = useState<GameState>({
     players: {},
     worldBounds: { width: GAME_CONFIG.WORLD_WIDTH, height: GAME_CONFIG.WORLD_HEIGHT },
   });
   const [currentPlayerId, setCurrentPlayerId] = useState<string | null>(null);
+  const [currentRoomCode, setCurrentRoomCode] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   
   const wsRef = useRef<WebSocket | null>(null);
@@ -52,6 +54,7 @@ export default function Game({ username, onDisconnect }: GameProps) {
       const joinMessage: WSMessage = {
         type: "join",
         username,
+        roomCode,
       };
       socket.send(JSON.stringify(joinMessage));
     };
@@ -63,10 +66,11 @@ export default function Game({ username, onDisconnect }: GameProps) {
         switch (message.type) {
           case "welcome":
             setCurrentPlayerId(message.playerId);
+            setCurrentRoomCode(message.roomCode);
             setGameState(message.state);
             toast({
               title: "Connected!",
-              description: `Welcome to the game, ${username}!`,
+              description: `Room ${message.roomCode} - Welcome, ${username}!`,
             });
             break;
 
@@ -94,6 +98,24 @@ export default function Game({ username, onDisconnect }: GameProps) {
               delete newPlayers[message.playerId];
               return { ...prev, players: newPlayers };
             });
+            break;
+
+          case "room_full":
+            toast({
+              variant: "destructive",
+              title: "Room Full",
+              description: "This room is at maximum capacity",
+            });
+            setTimeout(onDisconnect, 2000);
+            break;
+
+          case "room_not_found":
+            toast({
+              variant: "destructive",
+              title: "Room Not Found",
+              description: "Could not find the requested room",
+            });
+            setTimeout(onDisconnect, 2000);
             break;
         }
       } catch (error) {
@@ -127,7 +149,7 @@ export default function Game({ username, onDisconnect }: GameProps) {
     return () => {
       socket.close();
     };
-  }, [username, onDisconnect, toast]);
+  }, [username, roomCode, onDisconnect, toast]);
 
   // Input handling
   const sendInput = useCallback(() => {
@@ -210,6 +232,7 @@ export default function Game({ username, onDisconnect }: GameProps) {
           players={gameState.players}
           currentPlayerId={currentPlayerId}
           connectionStatus={connectionStatus}
+          roomCode={currentRoomCode}
         />
       </div>
     </div>

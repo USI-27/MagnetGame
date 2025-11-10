@@ -8,9 +8,10 @@ interface HUDProps {
   players: Record<string, Player>;
   currentPlayerId: string | null;
   connectionStatus: "connected" | "connecting" | "disconnected";
+  roomCode: string | null;
 }
 
-export function HUD({ players, currentPlayerId, connectionStatus }: HUDProps) {
+export function HUD({ players, currentPlayerId, connectionStatus, roomCode }: HUDProps) {
   const currentPlayer = currentPlayerId ? players[currentPlayerId] : null;
   const playerCount = Object.keys(players).length;
   const [showInstructions, setShowInstructions] = useState(true);
@@ -28,6 +29,19 @@ export function HUD({ players, currentPlayerId, connectionStatus }: HUDProps) {
       <div className="absolute top-4 left-4 space-y-2" data-testid="hud-top-left">
         <Card className="shadow-lg backdrop-blur-sm bg-card/95">
           <CardContent className="p-3 space-y-2">
+            {roomCode && (
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <span className="text-xs text-muted-foreground">Room Code:</span>
+                <Badge 
+                  variant="outline" 
+                  className="font-mono text-sm"
+                  data-testid="badge-room-code"
+                >
+                  {roomCode}
+                </Badge>
+              </div>
+            )}
+            
             <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-muted-foreground" />
               <span className="text-sm font-medium" data-testid="text-player-count">
