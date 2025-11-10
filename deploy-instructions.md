@@ -15,7 +15,11 @@
 4. Settings:
    - Build: `npm install && npm run build`
    - Start: `npm start`
+   - Environment: Node
+   - Region: Oregon (or closest to you)
 5. Deploy! Get URL like: `https://magnet-game.onrender.com`
+
+**Note**: First deploy takes 5-10 minutes. See RENDER-DEPLOY.md for detailed guide.
 
 ## Deploy to Railway.app (Free Tier)
 
