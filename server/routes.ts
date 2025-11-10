@@ -1,15 +1,23 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { WebSocket, WebSocketServer } from "ws";
+import { GameServer } from "./gameServer";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
-
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
-
   const httpServer = createServer(app);
+
+  // Create WebSocket server on /ws path (separate from Vite's HMR)
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  
+  // Initialize game server
+  const gameServer = new GameServer(wss);
+
+  console.log("WebSocket server initialized on path /ws");
+
+  // Cleanup on server shutdown
+  httpServer.on("close", () => {
+    gameServer.stop();
+  });
 
   return httpServer;
 }

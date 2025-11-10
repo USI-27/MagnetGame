@@ -1,27 +1,40 @@
-import { Switch, Route } from "wouter";
-import { queryClient } from "./lib/queryClient";
+import { useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "./lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/not-found";
+import Lobby from "@/pages/Lobby";
+import Game from "@/pages/Game";
 
-function Router() {
-  return (
-    <Switch>
-      {/* Add pages below */}
-      {/* <Route path="/" component={Home}/> */}
-      {/* Fallback to 404 */}
-      <Route component={NotFound} />
-    </Switch>
-  );
-}
+type AppState = "lobby" | "game";
 
 function App() {
+  const [appState, setAppState] = useState<AppState>("lobby");
+  const [username, setUsername] = useState<string>("");
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const handleJoin = (name: string) => {
+    setUsername(name);
+    setIsConnecting(true);
+    setAppState("game");
+  };
+
+  const handleDisconnect = () => {
+    setAppState("lobby");
+    setUsername("");
+    setIsConnecting(false);
+  };
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        {appState === "lobby" && (
+          <Lobby onJoin={handleJoin} isConnecting={isConnecting} />
+        )}
+        {appState === "game" && username && (
+          <Game username={username} onDisconnect={handleDisconnect} />
+        )}
         <Toaster />
-        <Router />
       </TooltipProvider>
     </QueryClientProvider>
   );
