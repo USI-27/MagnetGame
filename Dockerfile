@@ -5,7 +5,7 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies (including devDependencies for build)
+# Install ALL dependencies (including devDependencies)
 RUN npm install
 
 # Copy source code
@@ -14,8 +14,8 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Remove devDependencies after build
-RUN npm prune --production
+# Don't prune - keep all dependencies for runtime
+# (esbuild bundles with --packages=external which requires deps at runtime)
 
 # Expose port
 EXPOSE 5000

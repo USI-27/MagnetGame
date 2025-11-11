@@ -27,7 +27,12 @@ Make sure your code is on GitHub first (use `push-to-github.bat`)
      ```
    - **Plan**: Free
 
-6. Click **"Create Web Service"**
+6. **IMPORTANT**: Click "Advanced" and add environment variable:
+   - **Key**: `NPM_CONFIG_PRODUCTION`
+   - **Value**: `false`
+   - This keeps devDependencies which are needed for the bundled server
+
+7. Click **"Create Web Service"**
 
 ### Step 3: Wait for Deployment
 - First deploy takes 5-10 minutes
